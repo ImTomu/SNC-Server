@@ -1,6 +1,6 @@
-# KFO-Server, an Attorney Online server
+# SNC-Server, an Attorney Online server
 #
-# Copyright (C) 2020 Crystalwarrior <varsash@gmail.com>
+# Copyright (C) 2020 Hitomu
 #
 # Derivative of tsuserver3, an Attorney Online server. Copyright (C) 2016 argoneus <argoneuscze@gmail.com>
 #
@@ -46,10 +46,12 @@ class ClientManager:
             self.id = user_id
             self.char_id = -1
             self.area = server.hub_manager.default_hub().default_area()
+            self.hub = server.hub_manager.default_hub()
             self.server = server
             self.name = ''
             self.fake_name = ''
             self.is_mod = False
+            self.is_show_mod_tag = False
             self.mod_profile_name = None
             self.is_dj = True
             self.can_wtce = True
@@ -67,9 +69,22 @@ class ClientManager:
             self.ipid = ipid
             self.version = ''
 
+            # Party and Vote
+            self.in_party = False
+            self.party = None
+            self.partyrole = ''
+            self.votepower = 0
+            self.voted = False
+
+            # Friend
+            self.friendlist = None
+            self.friendrequests = set()
+
             # Pairing stuff
-            self.charid_pair = -1
+            self.first_charid_pair = -1
+            self.second_charid_pair = -1
             self.offset_pair = 0
+            self.offset_pair_y = 0
             self.last_sprite = ''
             self.flip = 0
             self.claimed_folder = ''
@@ -513,9 +528,11 @@ class ClientManager:
                 self.area.area_manager.remove_owner(self)
                 # Don't allow multi-hub CMing either
                 for area in self.area.area_manager.areas:
-                    area.remove_owner(self)
+                    if len(area.owners) > 0:
+                        area.remove_owner(self)
             self.area.remove_client(self)
             self.area = area
+            self.hub = self.server.hub_manager.get_hub_by_id(area.area_manager.id)
             if len(area.pos_lock) > 0 and not (target_pos in area.pos_lock):
                 target_pos = area.pos_lock[0]
             area.new_client(self)
@@ -771,8 +788,8 @@ class ClientManager:
                                     key=lambda x: x.char_name or '')
             for c in sorted_clients:
                 info += '\r\n'
-                if c.is_mod:
-                    info += '[M]'
+                if c.is_mod and self.is_show_mod_tag:
+                    info += '[MOD]'
                 elif c in area.area_manager.owners:
                     info += '[GM]'
                 elif c in area._owners:
@@ -850,9 +867,12 @@ class ClientManager:
             msg = '=== Hubs ==='
             for hub in self.server.hub_manager.hubs:
                 owner = 'FREE'
+                hub_lockstatus = 'UNLOCKED'
                 if len(hub.owners) > 0:
                     owner = hub.get_gms()
-                msg += f'\r\n[{hub.id}] {hub.name} (users: {len([c for c in hub.clients if not c.hidden])}) {owner}'
+                if hub.lock:
+                    hub_lockstatus = 'LOCKED'
+                msg += f'\r\n[{hub.id}] {hub.name} (users: {len([c for c in hub.clients if not c.hidden])}) [{owner}] [{hub_lockstatus}]'
                 if self.area.area_manager == hub:
                     msg += ' [*]'
             self.send_ooc(msg)
@@ -1136,6 +1156,7 @@ class ClientManager:
             self.server, transport, user_id,
             database.ipid(peername))
         self.clients.add(c)
+        self.server.friend_manager.new_friendlist(c)
         temp_ipid = c.ipid
         for client in self.server.client_manager.clients:
             if client.ipid == temp_ipid:
@@ -1161,6 +1182,24 @@ class ClientManager:
         for c in self.server.client_manager.clients:
             if c.ipid == temp_ipid:
                 c.clientscon -= 1
+        if client.in_party:
+            party = client.party
+            if len(party.users) != 0 and client in party.users:
+                party.users.remove(client)
+                for member in party.users:
+                    member.send_ooc(f'{client.name} disconnected and left the party.')
+            if party.leader == client and len(party.users) != 0:
+                for member in party.users:
+                    member.send_ooc(f'{client.name} disconnected and left the party.')
+                    if party.leader not in party.users:
+                        party.leader = member
+                        member.send_ooc('Party Leader left, you are now the new Party Leader.')
+                    else:
+                        member.send_ooc(f'Party Leader left, {party.leader.name} is the new Party Leader.')
+            if len(party.users) == 0:
+                client.server.parties.remove(party)
+        if client.friendlist is not None:
+            self.server.friend_manager.friendlists.remove(client.friendlist)
         self.clients.remove(client)
 
     def get_targets(self, client, key, value, local=False, single=False):

@@ -1,6 +1,6 @@
-# KFO-Server, an Attorney Online server
+# SNC-Server, an Attorney Online server
 #
-# Copyright (C) 2020 Crystalwarrior <varsash@gmail.com>
+# Copyright (C) 2020 Hitomu
 #
 # Derivative of tsuserver3, an Attorney Online server. Copyright (C) 2016 argoneus <argoneuscze@gmail.com>
 #
@@ -32,3 +32,17 @@ class ArgumentError(Exception):
 
 class ServerError(Exception):
     pass
+
+def ignore_exception(IgnoreException=Exception,DefaultVal=None):
+    """ Decorator for ignoring exception from a function
+    e.g.   @ignore_exception(DivideByZero)
+    e.g.2. ignore_exception(DivideByZero)(Divide)(2/0)
+    """
+    def dec(function):
+        def _dec(*args, **kwargs):
+            try:
+                return function(*args, **kwargs)
+            except IgnoreException:
+                return DefaultVal
+        return _dec
+    return dec

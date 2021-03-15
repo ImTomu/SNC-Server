@@ -1,6 +1,6 @@
-# KFO-Server, an Attorney Online server
+# SNC-Server, an Attorney Online server
 #
-# Copyright (C) 2020 Crystalwarrior <varsash@gmail.com>
+# Copyright (C) 2020 Hitomu
 #
 # Derivative of tsuserver3, an Attorney Online server. Copyright (C) 2016 argoneus <argoneuscze@gmail.com>
 #

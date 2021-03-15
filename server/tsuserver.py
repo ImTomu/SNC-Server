@@ -1,6 +1,6 @@
-# KFO-Server, an Attorney Online server
+# SNC-Server, an Attorney Online server
 #
-# Copyright (C) 2020 Crystalwarrior <varsash@gmail.com>
+# Copyright (C) 2020 Hitomu
 #
 # Derivative of tsuserver3, an Attorney Online server. Copyright (C) 2016 argoneus <argoneuscze@gmail.com>
 #
@@ -19,9 +19,12 @@
 
 import sys
 import importlib
+import pathlib
 
 import asyncio
 import websockets
+import socket
+import ssl
 
 import geoip2.database
 
@@ -34,20 +37,22 @@ logger = logging.getLogger('debug')
 from server import database
 from server.hub_manager import HubManager
 from server.client_manager import ClientManager
+from server.friend_manager import FriendManager
 from server.emotes import Emotes
 from server.discordbot import Bridgebot
 from server.exceptions import ClientError,ServerError
 from server.network.aoprotocol import AOProtocol
 from server.network.aoprotocol_ws import new_websocket_client
+from server.network.aoprotocol_wss import new_websocket_secure_client
 from server.network.masterserverclient import MasterServerClient
 from server.network.webhooks import Webhooks
 from server.constants import remove_URL, dezalgo
 import server.logger
 
 class TsuServer3:
-    """The main class for KFO-Server derivative of tsuserver3 server software."""
+    """The main class for SNC-Server derivative of tsuserver3 server software."""
     def __init__(self):
-        self.software = 'KFO-Server'
+        self.software = 'SNC-Server'
         self.release = 3
         self.major_version = 3
         self.minor_version = 0
@@ -70,7 +75,7 @@ class TsuServer3:
                                    'flipping', 'fastloading', 'noencryption',
                                    'deskmod', 'evidence', 'modcall_reason',
                                    'cccc_ic_support', 'casing_alerts',
-                                   'arup', 'looping_sfx', 'additive', 'effects']
+                                   'arup', 'looping_sfx', 'additive', 'effects', 'gui_hubs', 'y_axis_offset']
 
         try:
             self.geoIpReader = geoip2.database.Reader('./storage/GeoLite2-ASN.mmdb')
@@ -85,6 +90,7 @@ class TsuServer3:
         try:
             self.load_config()
             self.load_censors()
+            self.friend_manager = FriendManager(self)
             self.hub_manager = HubManager(self)
             self.load_iniswaps()
             self.load_characters()
@@ -129,6 +135,17 @@ class TsuServer3:
                                             bound_ip,
                                             self.config['websocket_port'])
             asyncio.ensure_future(ao_server_ws)
+
+        if self.config['use_websockets_secure']:
+            ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            certifcate = pathlib.Path(self.config['ssl_certificate_location']).joinpath("cert.pem")
+            key =  pathlib.Path(self.config['ssl_certificate_location']).joinpath("privkey.pem")
+            ssl_context.load_cert_chain(certifcate,key)
+            ao_server_wss = websockets.serve(new_websocket_secure_client(self),
+                                             socket.gethostbyname(self.config['websocket_url']),
+                                             self.config['websocket_secure_port'],
+                                             ssl=ssl_context)
+            asyncio.ensure_future(ao_server_wss)
 
         if self.config['use_masterserver']:
             self.ms_client = MasterServerClient(self)

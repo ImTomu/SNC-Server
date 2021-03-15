@@ -12,6 +12,9 @@ from . import mod_only, list_commands, list_submodules, help
 __all__ = [
     'ooc_cmd_motd',
     'ooc_cmd_help',
+    'ooc_cmd_site',
+    'ooc_cmd_discord',
+    'ooc_cmd_repo',
     'ooc_cmd_kick',
     'ooc_cmd_ban',
     'ooc_cmd_banhdid',
@@ -19,6 +22,8 @@ __all__ = [
     'ooc_cmd_mute',
     'ooc_cmd_unmute',
     'ooc_cmd_login',
+    'ooc_cmd_enable_mod_tag',
+    'ooc_cmd_disable_mod_tag',
     'ooc_cmd_refresh',
     'ooc_cmd_online',
     'ooc_cmd_mods',
@@ -56,7 +61,7 @@ def ooc_cmd_help(client, arg):
         If you don't understand a specific core feature, check the official
         repository for more information:
 
-        https://github.com/Crystalwarrior/KFO-Server/blob/master/README.md 
+        https://github.com/Tomu-Chan/SNC-Server/blob/master/README.md 
 
         Available Categories:
         ''')
@@ -75,6 +80,26 @@ def ooc_cmd_help(client, arg):
             except AttributeError:
                 client.send_ooc(f'No such command or submodule ({arg}) has been found in the help docs.')
 
+def ooc_cmd_site(client, arg):
+    if len(arg) != 0:
+        raise ArgumentError('This command has no arguments.')
+    help_url = 'https://sites.google.com/view/snclawfirm'
+    help_msg = 'Site: {}'.format(help_url)
+    client.send_ooc(help_msg)
+
+def ooc_cmd_discord(client, arg):
+    if len(arg) != 0:
+        raise ArgumentError('This command has no arguments.')
+    help_url = 'https://discord.com/invite/3bpN6Rt'
+    help_msg = 'Discord: {}'.format(help_url)
+    client.send_ooc(help_msg)
+
+def ooc_cmd_repo(client, arg):
+    if len(arg) != 0:
+        raise ArgumentError('This command has no arguments.')
+    help_url = 'https://github.com/Tomu-Chan/SNC-Server'
+    help_msg = 'Server repository can be found in github: {}'.format(help_url)
+    client.send_ooc(help_msg)
 
 @mod_only()
 def ooc_cmd_kick(client, arg):
@@ -301,6 +326,33 @@ def ooc_cmd_login(client, arg):
     client.send_ooc('Logged in as a moderator.')
     database.log_misc('login', client, data={'profile': login_name})
 
+@mod_only()
+def ooc_cmd_enable_mod_tag(client, arg):
+    if len(arg) > 0:
+        raise ClientError('This command does not take in any arguments!')
+    elif client.is_show_mod_tag is True:
+        raise  ClientError('Your mod tag already enabled.')
+    else:
+        try:
+            client.is_show_mod_tag = True
+            database.log_misc('enabled_mod_tag', client)
+            client.send_ooc('Mod tag enabled.')
+        except ServerError:
+            raise
+
+@mod_only()
+def ooc_cmd_disable_mod_tag(client, arg):
+    if len(arg) > 0:
+        raise ClientError('This command does not take in any arguments!')
+    elif client.is_show_mod_tag is False:
+        raise  ClientError('Your mod tag already disabled.')
+    else:
+        try:
+            client.is_show_mod_tag = False
+            database.log_misc('disabled_mod_tag', client)
+            client.send_ooc('Mod tag disabled.')
+        except ServerError:
+            raise
 
 @mod_only()
 def ooc_cmd_refresh(client, arg):

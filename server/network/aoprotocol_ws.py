@@ -1,6 +1,8 @@
-# tsuserver3, an Attorney Online server
+# SNC-Server, an Attorney Online server
 #
-# Copyright (C) 2017 argoneus <argoneuscze@gmail.com>
+# Copyright (C) 2020 Hitomu
+#
+# Derivative of tsuserver3, an Attorney Online server. Copyright (C) 2016 argoneus <argoneuscze@gmail.com>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as

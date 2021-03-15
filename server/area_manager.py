@@ -1,6 +1,6 @@
-# KFO-Server, an Attorney Online server
+# SNC-Server, an Attorney Online server
 #
-# Copyright (C) 2020 Crystalwarrior <varsash@gmail.com>
+# Copyright (C) 2020 Hitomu
 #
 # Derivative of tsuserver3, an Attorney Online server. Copyright (C) 2016 argoneus <argoneuscze@gmail.com>
 #
@@ -37,6 +37,9 @@ class AreaManager:
 
     def __init__(self, hub_manager, name):
         self.hub_manager = hub_manager
+        self.lock = False
+        self.password = ''
+        self.lockedby = None
         self.areas = []
         self.owners = set()
 
@@ -271,6 +274,26 @@ class AreaManager:
             self.character_data[c_id] = {}
         self.character_data[c_id][key] = value
 
+    def hub_lock(self, client, hubpass=''):
+        self.lock = True
+        self.lockedby = client
+        self.password = hubpass
+        if self.lockedby is None:
+            by = ' by {}'.format(client.char_name)
+            client.send_ooc('This hub is now locked{}.'.format(by))
+
+    def hub_is_hub_password_matched(self, password):
+        if self.password == password:
+            return True
+        else:
+            return False
+
+    def hub_unlock(self, client):
+        self.lock = False
+        self.lockedby = None
+        self.password = ''
+        client.send_ooc('This hub is now unlocked.')
+
     def create_area(self):
         """Create a new area instance and return it."""
         idx = len(self.areas)
@@ -387,6 +410,21 @@ class AreaManager:
             if area.abbreviation == abbr:
                 return area
         raise AreaError('Area not found.')
+
+    def send_hub_list(self):
+        msg = '=== Hubs ==='.format(self.hub.name)
+        for i, hub in enumerate(self.server.hub_manager.hubs):
+            owner = 'FREE'
+            hub_lockstatus = 'UNLOCKED'
+            if hub.hub_islocked:
+                hub_lockstatus = 'LOCKED'
+            if hub.master:
+                owner = 'MASTER: {}'.format(hub.master.name)
+            msg += '\r\nHub {}: {} (users: {}) [{}][{}][{}]'.format(
+                i, hub.name, len(hub.clients()), hub.status, owner, hub_lockstatus)
+            if self.hub == hub:
+                msg += ' [*]'
+        self.send_(msg)
 
     def send_command(self, cmd, *args):
         """

@@ -1,3 +1,22 @@
+# SNC-Server, an Attorney Online server
+#
+# Copyright (C) 2020 Hitomu
+#
+# Derivative of tsuserver3, an Attorney Online server. Copyright (C) 2016 argoneus <argoneuscze@gmail.com>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 from urllib import parse
 import asyncio
 import discord
@@ -13,9 +32,9 @@ class Bridgebot(commands.Bot):
         super().__init__(command_prefix='$')
         self.server = server
         self.pending_messages = []
-        self.hub_id = hub_id
-        self.area_id = area_id
-        self.target_channel = target_chanel
+        self.hub_id = 0
+        self.area_id = 0
+        self.target_channel = ao2
 
     @staticmethod
     def loop_it_forever(loop):
@@ -75,11 +94,11 @@ class Bridgebot(commands.Bot):
         # await self.process_commands(message)
     
     async def send_char_message(self, name, message, avatar=None):
-        webhook = None
+        webhook = https://discord.com/api/webhooks/814234992351379476/QvXqcDCI9reA33dg3UJXrm0F3jF8BsGnv4nOdouDxfoiAXi0g8-xU9KCARA4EgvH64IT
         try:
             webhooks = await self.channel.webhooks()
             for hook in webhooks:
-                if hook.user == self.user or hook.name == 'AO2_Bridgebot':
+                if hook.user == self.user or hook.name == 'SnC':
                     webhook = hook
                     break
             if webhook == None:

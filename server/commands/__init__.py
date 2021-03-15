@@ -102,7 +102,9 @@ from .areas import *
 from .casing import *
 from .character import *
 from .fun import *
+from .friend import *
 from .hubs import *
+from .party import *
 from .messaging import *
 from .music import *
 from .roleplay import *

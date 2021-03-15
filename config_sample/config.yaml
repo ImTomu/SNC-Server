@@ -41,6 +41,14 @@ motd: Welcome to my server!
 use_websockets: true
 websocket_port: 50001
 
+# if you are planning to host of your WebAO version with SSL
+# this meant to be use for 'let's encrypt' with both certificate
+# and it's key
+use_websockets_secure: false
+websocket_url: ''
+websocket_secure_port: 50002
+ssl_certificate_location: ''
+
 # Whether or not the server should be advertised on the server list.
 use_masterserver: true
 # Don't change these unless the master server is no more

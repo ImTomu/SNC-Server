@@ -37,13 +37,61 @@ __all__ = [
     'ooc_cmd_ungm',
     'ooc_cmd_broadcast',
     'ooc_cmd_clear_broadcast',
+    'ooc_cmd_hub_lock',
+    'ooc_cmd_hub_unlock',
+    'ooc_cmd_hub_force_unlock',
 ]
 
 
 def ooc_cmd_hub(client, arg):
     """
     List hubs, or go to another hub.
-    Usage: /hub [id/name]
+    Usage1: /hub
+    Usage2: /hub [id/name]
+    Usage3: /hub [id/name] "password"
+    """
+
+    args = arg.split(' ')
+    if len(arg) == 0:
+        client.send_hub_list()
+        return
+    elif len(args) == 1 or len(args) == 2:
+        try:
+            hub = client.server.hub_manager.get_hub_by_id_or_name(args[0])
+            if len(args) == 1:
+                if hub.lock and not client.is_mod and hub.lockedby is not client:
+                    raise ArgumentError('Hub {} is locked. You are not allowed to enter.'.format(hub.id))
+                else:
+                    preflist = client.server.supported_features.copy()
+                    if not hub.arup_enabled:
+                        preflist.remove('arup')
+                    client.send_command('FL', *preflist)
+                    client.change_area(hub.default_area())
+                    client.area.area_manager.send_arup_status([client])
+                    client.area.area_manager.send_arup_cms([client])
+                    client.area.area_manager.send_arup_lock([client])
+                    client.send_hub_info()
+            if len(args) == 2:
+                if hub.locked:
+                    if not hub.hub_is_hub_password_matched(str(args[1])[1:len(args[1]) - 1]):
+                        raise ArgumentError('Password is not matched for Hub {}'.format(hub.id))
+                    else:
+                        preflist = client.server.supported_features.copy()
+                        if not hub.arup_enabled:
+                            preflist.remove('arup')
+                        client.send_command('FL', *preflist)
+                        client.change_area(hub.default_area())
+                        client.area.area_manager.send_arup_status([client])
+                        client.area.area_manager.send_arup_cms([client])
+                        client.area.area_manager.send_arup_lock([client])
+                        client.send_hub_info()
+                else:
+                    raise ArgumentError('Hub [{}] - \"{}\" is already unlocked. You don\'t need to put password to move to this hub.'.format(hub.id, hub.name))
+        except ValueError:
+            raise ArgumentError('Hub ID must be a number or name.')
+        except (AreaError, ClientError):
+            raise
+
     """
     args = arg.split()
     if len(args) == 0:
@@ -52,9 +100,21 @@ def ooc_cmd_hub(client, arg):
 
     try:
         for hub in client.server.hub_manager.hubs:
-            if (args[0].isdigit() and hub.id == int(args[0])) or hub.name.lower() == arg.lower() or hub.abbreviation == args[0]:
+            if (args[0].isdigit() and hub.id == int(args[0])) \
+                    or hub.name.lower() == arg.lower() \
+                    or hub.abbreviation == args[0]:
                 if hub == client.area.area_manager:
                     raise AreaError('User already in specified hub.')
+                if hub.lock and len(args) == 1:
+                    if not client.is_mod and hub.lockedby is not client:
+                        client.change_area(client.hub.id)
+                        raise ArgumentError('Hub {} is locked. You are not allowed to enter.'.format(hub.id))
+                elif hub.lock and len(args) == 2:
+                    if not hub.hub_is_hub_password_matched(str(args[1])[1:len(args[1]) - 1]):
+                        raise ArgumentError('Password is not matched for Hub {}'.format(hub.id))
+                elif not hub.lock and len(args) == 2:
+                    raise ArgumentError('Hub [{}] - \"{}\" is already unlocked. You don\'t need to put password to move to this hub.'.format(hub.id, hub.name))
+
                 preflist = client.server.supported_features.copy()
                 if not hub.arup_enabled:
                     preflist.remove('arup')
@@ -70,6 +130,7 @@ def ooc_cmd_hub(client, arg):
         raise ArgumentError('Hub ID must be a name, abbreviation or a number.')
     except (AreaError, ClientError):
         raise
+    """
 
 
 @mod_only(hub_owners=True)
@@ -175,7 +236,7 @@ def ooc_cmd_clear_hub(client, arg):
     if arg != '':
         raise ArgumentError('This command takes no arguments!')
     try:
-        client.server.hub_manager.load(hub_id=client.area.area_manager.id)
+        client.server.hub_manager.load(hub_id=client.hub.id)
         client.area.area_manager.broadcast_ooc('Hub clearing initiated...')
         client.server.client_manager.refresh_music(client.area.area_manager.clients)
         client.send_ooc('Success, sending ARUP and refreshing music...')
@@ -621,3 +682,84 @@ def ooc_cmd_clear_broadcast(client, arg):
         return
     client.broadcast_list.clear()
     client.send_ooc('Your broadcast list has been cleared.')
+
+
+def ooc_cmd_hub_lock(client, arg):
+    """
+    Lock the current hub with or without a password.
+    Usage 1: /hub_lock
+    Usage 2: /hub_lock "password"
+    """
+    args = arg.split()
+    password = ''
+    if client.hub.lock:
+        client.send_ooc(
+            'Hub [{}] - \"{}\" is already locked.'.format(client.hub.id, client.hub.name))
+        return
+    if len(args) == 1:
+        if not str(args[0]).startswith('"') or not str(args[0]).endswith('"'):
+            raise ArgumentError('Password must start and end with quotes (\").')
+        else:
+            password = str(args[0])[1:len(args[0]) - 1]
+            if not 4 <= len(password) <= 16:
+                raise ArgumentError('Password length must 4 - 16.')
+            else:
+                if password.isalpha() or password.isnumeric():
+                    raise ArgumentError('Password must includes alphabet, numeric, or symbol.')
+    elif len(args) > 1:
+        raise ArgumentError('/hub_lock only takes one argument for password. Use /hub_lock "your_password" to use it.')
+    allowed = client in client.hub.owners or client.is_mod
+    if not allowed:
+        if not (client.char_id in client.hub.get_character_data(client.char_id, 'keys', [])):
+            raise ClientError('Only CM or mods can lock this hub.')
+    else:
+        client.hub.hub_lock(client, password)
+        client.area.broadcast_ooc(
+            'Hub [{}] - \"{}\" is now locked.'.format(client.hub.id, client.hub.name))
+
+def ooc_cmd_hub_unlock(client, arg):
+    """
+     Lock the current hub with or without a password.
+     Usage 1: /hub_lock
+     Usage 2: /hub_lock "password"
+     """
+    if not client.hub.lock:
+        client.send_ooc(
+            'Hub [{}] - \"{}\" is already unlocked.'.format(client.hub.id, client.hub.name))
+        return
+    if len(arg) == 0:
+        if not client.hub.password == '':
+            raise ArgumentError('This hub is locked with a password. Use /hub_lock "password" to unlock it or call \"Moderator\" to unlock it if you forgot the password.')
+    elif len(arg) > 0 and len(arg.split(' ')) == 1:
+        args = arg.split(' ')
+        password = str(args[0])[1:len(args[0]) - 1]
+        if not client.hub.hub_is_hub_password_matched(password):
+            raise ArgumentError('Password is not matched for Hub {}'.format(client.hub.id))
+    else:
+        raise ArgumentError('/hub_unlock takes one argument for password. Use /hub_unlock "password" to use it.')
+    allowed = client in client.hub.owners or client.is_mod
+    if not allowed:
+        if not (client.hub.id in client.hub.get_character_data(client.char_id, 'keys', [])):
+            raise ClientError('Only CM or mods can unlock this hub.')
+    else:
+        client.hub.hub_unlock(client)
+        client.area.broadcast_ooc(
+            'Hub [{}] - \"{}\" is now unlocked.'.format(client.hub.id, client.hub.name))
+
+def ooc_cmd_hub_force_unlock(client, arg):
+    """
+     [Mods only]
+     Unlock the current hub with or without a password.
+     Usage 1: /hub_force_unlock
+     """
+    if not client.is_mod:
+        raise ArgumentError('You need permission to use this command.')
+    if not len(arg) == 0:
+        raise ArgumentError('/hub_force_unlock takes no argument.')
+    if not client.hub.locked:
+        client.send_ooc(
+            'Hub [{}] - \"{}\" is already unlocked.'.format(client.hub.id, client.hub.name))
+        return
+    client.hub.hub_unlock(client)
+    client.area.broadcast_ooc(
+            'Hub [{}] - \"{}\" is now unlocked by moderator.'.format(client.hub.id, client.hub.name))

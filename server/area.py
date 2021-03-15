@@ -1,6 +1,6 @@
-# KFO-Server, an Attorney Online server
+# SNC-Server, an Attorney Online server
 #
-# Copyright (C) 2020 Crystalwarrior <varsash@gmail.com>
+# Copyright (C) 2020 Hitomu
 #
 # Derivative of tsuserver3, an Attorney Online server. Copyright (C) 2016 argoneus <argoneuscze@gmail.com>
 #
@@ -64,6 +64,7 @@ class Area:
         self.move_delay = 0
         self.hide_clients = False
         self.max_players = -1
+        self.total_players = 0
         self.desc = ''
         self.music_ref = ''
         self.client_music = True
@@ -342,6 +343,7 @@ class Area:
     def new_client(self, client):
         """Add a client to the area."""
         self.clients.add(client)
+        self.total_players += 1
         database.log_room('area.join', client, self)
 
         if self.music_autoplay:
@@ -365,6 +367,7 @@ class Area:
                 if self.is_locked != self.Locked.FREE:
                     self.unlock()
         self.clients.remove(client)
+        self.total_players -= 1
         if client in self.afkers:
             self.afkers.remove(client)
             self.server.client_manager.toggle_afk(client)

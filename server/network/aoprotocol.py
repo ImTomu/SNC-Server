@@ -1,6 +1,6 @@
-# KFO-Server, an Attorney Online server
+# SNC-Server, an Attorney Online server
 #
-# Copyright (C) 2020 Crystalwarrior <varsash@gmail.com>
+# Copyright (C) 2020 Hitomu
 #
 # Derivative of tsuserver3, an Attorney Online server. Copyright (C) 2016 argoneus <argoneuscze@gmail.com>
 #
@@ -311,6 +311,40 @@ class AOProtocol(asyncio.Protocol):
 
         self.client.send_command('SM', *song_list)
 
+    def net_cmd_rh(self, _):
+        """ Asks for hub list
+
+        RH#%
+
+        """
+        hub_list = []
+        for i, hub in enumerate(self.server.hub_manager.hubs):
+            hub_list.append(hub.name)
+        self.client.send_command('FH', *hub_list)
+
+    def net_cmd_ra(self, _):
+        """ Asks for area list
+
+        RA#%
+
+        """
+        area_list = []
+        for i, area in enumerate(self.client.get_area_list()):
+            area_list.append(area.name)
+        self.client.send_command('FA', *area_list)
+
+    def net_cmd_rhpc(self, _):
+        """ Asks for area list
+
+        RHPC#%
+
+        """
+        area_list_count = [0] * len(self.server.hub_manager.hubs)
+        for i, hub in enumerate(self.server.hub_manager.hubs):
+            for j, area in enumerate(hub.areas):
+                area_list_count[i] += area.total_players
+        self.client.send_command('FHPC', *area_list_count)
+
     def net_cmd_rd(self, _):
         """Asks for server metadata(charscheck, motd etc.) and a DONE#% signal(also best packet)
 
@@ -393,6 +427,15 @@ class AOProtocol(asyncio.Protocol):
             ):
             # 2.6 validation monstrosity.
             msg_type, pre, folder, anim, text, pos, sfx, emote_mod, cid, sfx_delay, button, evidence, flip, ding, color, showname, charid_pair, offset_pair, nonint_pre = args
+        elif self.validate_net_cmd(args, self.ArgType.STR, self.ArgType.STR_OR_EMPTY, self.ArgType.STR,
+                                   self.ArgType.STR,
+                                   self.ArgType.STR, self.ArgType.STR, self.ArgType.STR, self.ArgType.INT,
+                                   self.ArgType.INT, self.ArgType.INT, self.ArgType.INT, self.ArgType.INT,
+                                   self.ArgType.INT, self.ArgType.INT, self.ArgType.INT, self.ArgType.STR_OR_EMPTY,
+                                   self.ArgType.INT, self.ArgType.INT, self.ArgType.INT, self.ArgType.STR,
+                                   self.ArgType.INT, self.ArgType.INT):
+            # 2.8 partial validation monstrosity (additive & frame shake)
+            msg_type, pre, folder, anim, text, pos, sfx, emote_mod, cid, sfx_delay, button, evidence, flip, ding, color, showname, charid_pair, offset_pair, nonint_pre, sfx_looping, screenshake, additive = args
         elif self.validate_net_cmd(
                 args, self.ArgType.STR, self.ArgType.STR_OR_EMPTY,              # msg_type, pre
                 self.ArgType.STR, self.ArgType.STR, self.ArgType.STR_OR_EMPTY,  # folder, anim, text
@@ -540,9 +583,9 @@ class AOProtocol(asyncio.Protocol):
         if len(showname) > 15:
             self.client.send_ooc("Your IC showname is way too long!")
             return
-        if not self.client.is_mod and showname.lstrip().lower().startswith('[m'):
-            self.client.send_ooc("Nice try! You may not spoof [M] tag in your showname.")
-            return
+        #if not self.client.is_mod and showname.lstrip().lower().startswith('[m'):
+        #    self.client.send_ooc("Nice try! You may not spoof [M] tag in your showname.")
+        #    return
         if (nonint_pre == 1 and button in range(1, 4)) or self.client.area.non_int_pres_only:
             if emote_mod == 1 or emote_mod == 2:
                 emote_mod = 0
@@ -642,10 +685,10 @@ class AOProtocol(asyncio.Protocol):
         self.client.showname = showname
 
         # Mod prefix if we're logged in as one
-        if self.client.is_mod:
-            if showname == '':
-                showname = self.client.char_name
-            showname = f'[M] {showname}'
+        #if self.client.is_mod:
+        #    if showname == '':
+        #        showname = self.client.char_name
+        #    showname = f'[M] {showname}'
 
         # Here, we check the pair stuff, and save info about it to the client.
         # Notably, while we only get a charid_pair and an offset, we send back a chair_pair, an emote, a talker offset
@@ -773,6 +816,453 @@ class AOProtocol(asyncio.Protocol):
             other_emote, offset_pair, other_offset, other_flip, nonint_pre,
             sfx_looping, screenshake, frames_shake, frames_realization,
             frames_sfx, additive, effect)
+
+    ### Support for triple-pairing & y-offset pairing
+    def net_cmd_msv2(self, args):
+        """IC message.
+
+        Refer to the implementation for details.
+
+        """
+        if not self.client.is_checked:
+            return
+        if self.client.is_muted:  # Checks to see if the client has been muted by a mod
+            self.client.send_ooc('You are muted by a moderator.')
+            return
+
+        showname = ""
+        charid_pair = -1
+        offset_pair = 0
+        offset_pair_y = 0
+        nonint_pre = 0
+        sfx_looping = "0"
+        screenshake = 0
+        frames_shake = ""
+        frames_realization = ""
+        frames_sfx = ""
+        additive = 0
+        effect = ""
+        pair_order = 0
+        if self.validate_net_cmd(args, self.ArgType.STR,  # msg_type
+                                 self.ArgType.STR_OR_EMPTY, self.ArgType.STR,  # pre, folder
+                                 self.ArgType.STR, self.ArgType.STR_OR_EMPTY,  # anim, text
+                                 self.ArgType.STR, self.ArgType.STR,  # pos, sfx
+                                 self.ArgType.INT, self.ArgType.INT,  # emote_mod, cid
+                                 self.ArgType.INT, self.ArgType.INT_OR_STR,  # sfx_delay, button
+                                 self.ArgType.INT, self.ArgType.INT,  # evidence, flip
+                                 self.ArgType.INT, self.ArgType.INT,  # ding, color
+                                 ):
+            # Pre-2.6 validation monstrosity.
+            msg_type, pre, folder, anim, text, pos, sfx, emote_mod, cid, sfx_delay, button, evidence, flip, ding, color = args
+        elif self.validate_net_cmd(
+                args, self.ArgType.STR, self.ArgType.STR_OR_EMPTY,  # msg_type, pre
+                self.ArgType.STR, self.ArgType.STR, self.ArgType.STR_OR_EMPTY,  # folder, anim, text
+                self.ArgType.STR, self.ArgType.STR, self.ArgType.INT,  # pos, sfx, emote_mod
+                self.ArgType.INT, self.ArgType.INT, self.ArgType.INT_OR_STR,  # cid, sfx_delay, button
+                self.ArgType.INT, self.ArgType.INT, self.ArgType.INT,  # evidence, flip, ding
+                self.ArgType.INT, self.ArgType.STR_OR_EMPTY, self.ArgType.INT,  # color, showname, charid_pair
+                self.ArgType.INT, self.ArgType.INT,  # offset_pair, nonint_pre
+        ):
+            # 2.6 validation monstrosity.
+            msg_type, pre, folder, anim, text, pos, sfx, emote_mod, cid, sfx_delay, button, evidence, flip, ding, color, showname, charid_pair, offset_pair, nonint_pre = args
+        elif self.validate_net_cmd(
+                args, self.ArgType.STR, self.ArgType.STR_OR_EMPTY,  # msg_type, pre
+                self.ArgType.STR, self.ArgType.STR, self.ArgType.STR_OR_EMPTY,  # folder, anim, text
+                self.ArgType.STR, self.ArgType.STR, self.ArgType.INT,  # pos, sfx, emote_mod
+                self.ArgType.INT, self.ArgType.INT, self.ArgType.INT_OR_STR,  # cid, sfx_delay, button
+                self.ArgType.INT, self.ArgType.INT, self.ArgType.INT,  # evidence, flip, ding
+                self.ArgType.INT, self.ArgType.STR_OR_EMPTY, self.ArgType.STR,  # color, showname, charid_pair
+                self.ArgType.INT, self.ArgType.INT, self.ArgType.STR,  # offset_pair, nonint_pre, sfx_looping
+                self.ArgType.INT, self.ArgType.STR, self.ArgType.STR,  # screenshake, frames_shake, frames_realization
+                self.ArgType.STR, self.ArgType.INT, self.ArgType.STR,  # frames_sfx, additive, effect
+                self.ArgType.INT, #offset_pair_y
+        ):
+            # 2.8 validation monstrosity. (rip 2.7)
+            msg_type, pre, folder, anim, text, pos, sfx, emote_mod, cid, sfx_delay, button, evidence, flip, ding, color, showname, charid_pair, offset_pair, nonint_pre, sfx_looping, screenshake, frames_shake, frames_realization, frames_sfx, additive, effect, offset_pair_y = args
+            pair_args = charid_pair.split("^")
+            charid_pair = int(pair_args[0])
+            if (len(pair_args) > 1):
+                pair_order = pair_args[1]
+        else:
+            return
+
+        # Targets for whispering
+        whisper_clients = None
+
+        target_area = []
+        if self.client.is_mod or self.client in self.client.area.owners:
+            target_area = self.client.broadcast_list.copy()
+
+        if len(showname) > 0 and not self.client.area.showname_changes_allowed and not self.client.is_mod and not (
+                self.client in self.client.area.owners):
+            self.client.send_ooc(
+                "Showname changes are forbidden in this area!")
+            return
+        if self.client.area.is_iniswap(self.client, pre, anim,
+                                       folder, sfx):
+            self.client.send_ooc("Iniswap/custom emotes are blocked in this area")
+            return
+        if len(self.client.charcurse) > 0 and \
+                folder != self.client.char_name:
+            self.client.send_ooc(
+                "You may not iniswap while you are charcursed!")
+            return
+        if not self.client.area.blankposting_allowed:
+            if text.strip() == '':
+                self.client.send_ooc(
+                    "Blankposting is forbidden in this area!")
+                return
+            if len(re.sub(r'[{}\\`|(~~)]', '', text).replace(
+                    ' ', '')) < 3 and not text.startswith('<') and not text.startswith('>'):
+                self.client.send_ooc(
+                    "While that is not a blankpost, it is still pretty spammy. Try forming sentences."
+                )
+                return
+        if text.lstrip().startswith('(('):
+            self.client.send_ooc(
+                "Please, *please* use the OOC chat instead of polluting IC. Normal OOC is local to area. You can use /g to talk across the entire server.")
+            return
+        # Scrub text and showname for bad words
+        if self.client.area.area_manager.censor_ic and self.server.censors != None:
+            text = censor(text, self.server.censors['whole'], self.server.censors['replace'], True)
+            text = censor(text, self.server.censors['partial'], self.server.censors['replace'], False)
+            if len(showname) > 0:
+                showname = censor(showname, self.server.censors['whole'], self.server.censors['replace'], True)
+                showname = censor(showname, self.server.censors['partial'], self.server.censors['replace'], False)
+        if text.lower().startswith('/a ') or text.lower().startswith('/s '):
+            part = text.split(' ')
+            try:
+                areas = part[1].split(',')
+                for a in areas:
+                    try:
+                        aid = int(a)
+                    except ValueError:
+                        break
+                    area = self.client.area.area_manager.get_area_by_id(aid)
+                    if self.client in area.owners:
+                        target_area.append(area)
+                    else:
+                        self.client.send_ooc(f'You don\'t own {area.name}!')
+                        return
+                if len(target_area) <= 0:
+                    for a in self.client.area.area_manager.areas:
+                        if self.client in a.owners:
+                            target_area.append(a)
+                    part = part[1:]
+                else:
+                    part = part[2:]
+                if len(target_area) <= 0:
+                    self.client.send_ooc('No target areas found!')
+                    return
+                text = ' '.join(part)
+            except (ValueError, AreaError):
+                self.client.send_ooc(
+                    "That does not look like a valid area ID!")
+                return
+        if len(self.client.area.testimony) > 0 and (text.lstrip().startswith('>') or text.lstrip().startswith('<')):
+            if self.client.area.recording == True:
+                self.client.send_ooc('It is not cross-examination yet!')
+                return
+            cmd = text.strip()
+            idx = self.client.area.testimony_index
+            if len(cmd) > 1:
+                try:
+                    idx = int(cmd[1:]) - 1
+                    if idx <= -1:
+                        raise ValueError
+                except ValueError:
+                    self.client.send_ooc('Invalid index!')
+                    return
+            else:
+                if cmd == '>':
+                    idx += 1
+                if cmd == '<':
+                    idx -= 1
+                idx = idx % len(self.client.area.testimony)
+            try:
+                self.client.area.testimony_send(idx)
+                self.client.area.broadcast_ooc(f'{self.client.showname} has moved to Statement {idx + 1}.')
+            except:
+                self.client.send_ooc('Invalid index!')
+            return
+        if msg_type not in ('chat', '0', '1'):
+            return
+        # Disable the meme functionality of desk_mod that makes you selectively hide
+        # jud/hld/hlp foregrounds when showing every other foreground due to how many
+        # characters are set up with that by accident, preventing many characters
+        # from appearing behind desk for jud unless they were specifically made for it.
+        if msg_type == 'chat':
+            msg_type = '1'
+        # Invalid emote modifier causes the client to freeze up. Outdated clients send 4, replace it with 6.
+        # Fixes https://github.com/AttorneyOnline/tsuserver3/issues/112
+        if emote_mod == 4:
+            emote_mod = 6
+        if emote_mod not in (0, 1, 2, 5, 6):
+            return
+        if cid != self.client.char_id:
+            return
+        if sfx_delay < 0:
+            return
+        if '4' in str(button) and "<and>" not in str(button):
+            if not button.isdigit():
+                return
+        if evidence < 0:
+            return
+        if ding not in (0, 1):
+            return
+        if color >= 12:
+            return
+        if len(showname) > 15:
+            self.client.send_ooc("Your IC showname is way too long!")
+            return
+        #if not self.client.is_mod and showname.lstrip().lower().startswith('[m'):
+        #    self.client.send_ooc("Nice try! You may not spoof [M] tag in your showname.")
+        #    return
+        if (nonint_pre == 1 and button in range(1, 4)) or self.client.area.non_int_pres_only:
+            if emote_mod == 1 or emote_mod == 2:
+                emote_mod = 0
+                nonint_pre = 1
+            elif emote_mod == 6:
+                emote_mod = 5
+                nonint_pre = 1
+        if not self.client.area.shouts_allowed:
+            # Old clients communicate the objecting in emote_mod.
+            if emote_mod == 2:
+                emote_mod = 1
+            elif emote_mod == 6:
+                emote_mod = 5
+            # New clients do it in a specific objection message area.
+            button = 0
+            # Turn off the ding.
+            ding = 0
+        if isinstance(button, int):
+            if int(button) <= 0 and not self.client.area.can_send_message(self.client):
+                return
+        max_char = 0
+        try:
+            max_char = int(self.server.config['max_chars'])
+        except:
+            max_char = 256
+
+        if len(text) > max_char:
+            self.client.send_ooc(
+                "Your message is too long!")
+            return
+
+        # Really simple spam protection that functions on the clientside pre-2.8.5, and really should've been serverside from the start
+        if text.strip() != '' and self.client.area.last_ic_message != None and cid == self.client.area.last_ic_message[
+            8] and text == self.client.area.last_ic_message[4]:
+            self.client.send_ooc(
+                "Your message is a repeat of last one, don't spam!")
+            return
+
+        if pos != '' and self.client.pos != pos:
+            try:
+                self.client.change_position(pos)
+            except ClientError:
+                pos = ''
+        if len(self.client.area.pos_lock) > 0 and pos not in self.client.area.pos_lock:
+            pos = self.client.area.pos_lock[0]
+
+        if text.lower().startswith('/w ') or text.lower().startswith('[w] '):
+            if not self.client.area.can_whisper and not self.client.is_mod and not self.client in self.client.area.owners:
+                self.client.send_ooc(
+                    "You can't whisper in this area!")
+                return
+            part = text.split(' ')
+            try:
+                clients = part[1].split(',')
+                try:
+                    [int(c) for c in clients]
+                except ValueError:
+                    clients = []
+
+                if len(clients) > 0:
+                    part = part[2:]
+                    whisper_clients = [c for c in self.client.area.clients if str(c.id) in clients]
+                    clients = ','.join(clients)
+                else:
+                    part = part[1:]
+                    whisper_clients = [c for c in self.client.area.clients if c.pos == self.client.pos]
+                    clients = ''
+                text = ' '.join(part)
+                text = "}}}[W" + clients + "] {{{" + text
+            except (ValueError, AreaError):
+                self.client.send_ooc(
+                    "Invalid targets!")
+                return
+        if contains_URL(
+                text.replace('}', '').replace('{', '').replace('`', '').replace('|', '').replace('~', '').replace('º',
+                                                                                                                  '').replace(
+                        '№', '').replace('√', '').replace('\\s', '').replace('\\f', '')):
+            self.client.send_ooc(
+                "You shouldn't send links in IC!"
+            )
+            return
+
+        msg = dezalgo(text, self.server.zalgo_tolerance)[:256]
+        if self.client.shaken:
+            msg = self.client.shake_message(msg)
+        if self.client.disemvowel:
+            msg = self.client.disemvowel_message(msg)
+        if evidence:
+            evi = self.client.area.evi_list.evidences[
+                self.client.evi_list[evidence] - 1]
+
+            if evi.hiding_client != None:
+                c = evi.hiding_client
+                c.hide(False)
+                c.area.broadcast_area_list(c)
+                self.client.send_ooc(f'You discover {c.showname} in the {evi.name}!')
+
+            if evi.pos != 'all':
+                evi.pos = 'all'
+                self.client.area.broadcast_evidence_list()
+        # Update the showname ref for the client
+        self.client.showname = showname
+
+        # Mod prefix if we're logged in as one
+        #if self.client.is_mod:
+        #    if showname == '':
+        #        showname = self.client.char_name
+        #    showname = f'[M] {showname}'
+
+        # Here, we check the pair stuff, and save info about it to the client.
+        # Notably, while we only get a charid_pair and an offset, we send back a chair_pair, an emote, a talker offset
+        # and an other offset.
+
+        self.client.charid_pair = charid_pair
+        self.client.offset_pair = offset_pair
+        self.client.offset_pair_y = offset_pair_y
+        if emote_mod not in (5, 6):
+            self.client.last_sprite = anim
+        self.client.flip = flip
+        self.client.claimed_folder = folder
+        other_offset = 0
+        other_offset_pair_y = 0
+        other_emote = ''
+        other_flip = 0
+        other_folder = ''
+
+        confirmed = False
+        if charid_pair > -1:
+            for target in self.client.area.clients:
+                if not confirmed and target.char_id == self.client.charid_pair and target.charid_pair == self.client.char_id and target != self.client and target.pos == self.client.pos:
+                    confirmed = True
+                    other_offset = target.offset_pair
+                    other_offset_pair_y = target.offset_pair_y
+                    other_emote = target.last_sprite
+                    other_flip = target.flip
+                    other_folder = target.claimed_folder
+                    if (pair_order != ""):
+                        charid_pair = "{}^{}".format(charid_pair, pair_order)
+                    break
+
+        if not confirmed:
+            charid_pair = -1
+
+        if whisper_clients != None:
+            whisper_clients.insert(0, self.client)
+            for client in self.client.area.clients:
+                if client in whisper_clients:
+                    continue
+                if client in self.client.area.owners:
+                    whisper_clients.append(client)
+                if client.is_mod:
+                    whisper_clients.append(client)
+
+        if len(target_area) > 0:
+            try:
+                for a in target_area:
+                    add = additive
+                    # Additive only works on same-char messages
+                    if additive and \
+                            (a.last_ic_message == None or cid != a.last_ic_message[8] or \
+                             (a.last_ic_message[4].strip() == '' and a.last_ic_message[28] != 1) \
+                                    ):
+                        additive = 0
+                    a.send_command('MS', msg_type, pre, folder, anim, msg, pos, sfx,
+                                   emote_mod, cid, sfx_delay, button, self.client.evi_list[evidence],
+                                   flip, ding, color, showname, charid_pair, other_folder,
+                                   other_emote, offset_pair, other_offset, other_flip, nonint_pre,
+                                   sfx_looping, screenshake, frames_shake, frames_realization,
+                                   frames_sfx, add, effect, offset_pair_y, other_offset_pair_y)
+                a_list = ', '.join([str(a.id) for a in target_area])
+                if not (self.client.area in target_area):
+                    if msg == '':
+                        msg = ' '
+                    self.client.send_command('MS', msg_type, pre, folder, anim, '}}}[' + a_list + '] {{{' + msg, pos,
+                                             sfx,
+                                             emote_mod, cid, sfx_delay, button, self.client.evi_list[evidence],
+                                             flip, ding, color, showname, charid_pair, other_folder,
+                                             other_emote, offset_pair, other_offset, other_flip, nonint_pre,
+                                             sfx_looping, screenshake, frames_shake, frames_realization,
+                                             frames_sfx, add, effect, offset_pair_y, other_offset_pair_y)
+                self.client.send_ooc(f'Broadcasting to areas {a_list}')
+            except (AreaError, ValueError):
+                self.client.send_ooc(
+                    'Your broadcast list is invalid! Do /clear_broadcast to reset it and /broadcast <id(s)> to set a new one.')
+            return
+
+        # If we are not whispering...
+        if whisper_clients == None:
+            # Reveal ourselves from the evidence we were hiding in if it exists
+            if self.client.hidden_in != None:
+                self.client.hide(False)
+                self.client.area.broadcast_area_list(self.client)
+
+            if text.strip() != '' or self.client.area.last_ic_message == None or self.client.area.last_ic_message[
+                4].strip() != '':
+                # Discord Bridgebot
+                if 'bridgebot' in self.server.config and self.server.config['bridgebot']['enabled'] and \
+                        self.client.area.area_manager.id == self.server.bridgebot.hub_id and self.client.area.id == self.server.bridgebot.area_id:
+                    webname = self.client.char_name
+                    if showname != '' and showname != self.server.char_list[cid]:
+                        webname = f'{showname} ({webname})'
+                    # you'll hate me for this
+                    text = msg.replace('}', '').replace('{', '').replace('`', '').replace('|', '').replace('~',
+                                                                                                           '').replace(
+                        'º', '').replace('№', '').replace('√', '').replace('\\s', '').replace('\\f', '')
+                    # escape chars
+                    text = text.replace('@',
+                                        '@\u200b')  # The only way to escape a Discord ping is a zero width space...
+                    text = text.replace('<num>', '\\#')
+                    text = text.replace('<and>', '&')
+                    text = text.replace('<percent>', '%')
+                    text = text.replace('<dollar>', '$')
+                    text = text.replace('*', '\\*')
+                    text = text.replace('_', '\\_')
+                    # String is empty if we're strippin
+                    if not text.strip():
+                        # Discord blankpost
+                        text = '_ _'
+                    self.server.bridgebot.queue_message(webname, text, self.client.char_name)
+
+        # Additive only works on same-char messages
+        if additive and \
+                (self.client.area.last_ic_message == None or cid != self.client.area.last_ic_message[8] or \
+                 (self.client.area.last_ic_message[4].strip() == '' and self.client.area.last_ic_message[28] != 1) \
+                        ):
+            additive = 0
+        self.client.area.send_ic(self.client, msg_type, pre, folder, anim, msg,
+                                 pos, sfx, emote_mod, cid, sfx_delay,
+                                 button, self.client.evi_list[evidence],
+                                 flip, ding, color, showname, charid_pair,
+                                 other_folder, other_emote, offset_pair,
+                                 other_offset, other_flip, nonint_pre,
+                                 sfx_looping, screenshake, frames_shake,
+                                 frames_realization, frames_sfx,
+                                 additive, effect, offset_pair_y, other_offset_pair_y, targets=whisper_clients)
+
+        self.client.area.send_owner_command(
+            'MS', msg_type, pre, folder, anim,
+            '}}}[' + str(self.client.area.id) + '] {{{' + msg, pos, sfx,
+            emote_mod, cid, sfx_delay, button, self.client.evi_list[evidence],
+            flip, ding, color, showname, charid_pair, other_folder,
+            other_emote, offset_pair, other_offset, other_flip, nonint_pre,
+            sfx_looping, screenshake, frames_shake, frames_realization,
+            frames_sfx, additive, effect, offset_pair_y, other_offset_pair_y)
+
 
     def net_cmd_ct(self, args):
         """OOC Message
@@ -1270,14 +1760,17 @@ class AOProtocol(asyncio.Protocol):
         'AM': net_cmd_am,  # music list
         'RC': net_cmd_rc,  # AO2 character list
         'RM': net_cmd_rm,  # AO2 music list
+        'RA': net_cmd_ra,  #AO2 custom request for area list
+        'RHPC': net_cmd_rhpc,  # AO2 custom request for total player count in each hubs
+        'RH': net_cmd_rh,  # AO2 custom request for HUB list
         'RD': net_cmd_rd,  # AO2 done request, charscheck etc.
         'CC': net_cmd_cc,  # select character
         'MS': net_cmd_ms,  # IC message
+        'MSV2': net_cmd_msv2,  # IC message version 2
         'CT': net_cmd_ct,  # OOC message
         'MC': net_cmd_mc,  # play song
         'RT': net_cmd_rt,  # WT/CE buttons
-        'SETCASE':
-        net_cmd_setcase,  # set case-announcement preferences for user
+        'SETCASE': net_cmd_setcase,  # set case-announcement preferences for user
         'CASEA': net_cmd_casea,  # announce a case
         'HP': net_cmd_hp,  # penalties
         'PE': net_cmd_pe,  # add evidence
